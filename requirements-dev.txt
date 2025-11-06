@@ -3,5 +3,5 @@
 pytest
 httpx
 fastapi
-uvicorn
+
 
