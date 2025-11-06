@@ -1,0 +1,49 @@
+substitutions:
+  _REGION: "europe-west1"
+  _AR_REPO: "toxicity-app"
+  _CLUSTER: "toxicity-cluster"
+  _NAMESPACE: "toxicity"
+
+# Image finale (avec commit SHA)
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/toxicity-api:$COMMIT_SHA"
+
+steps:
+  # 1) Build image à partir de ./service
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/toxicity-api:$COMMIT_SHA", "service"]
+
+  # 2) Push image
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/toxicity-api:$COMMIT_SHA"]
+
+  # 3) Auth au cluster
+  - name: "gcr.io/cloud-builders/gcloud"
+    args:
+      [
+        "container","clusters","get-credentials","${_CLUSTER}",
+        "--region","${_REGION}"
+      ]
+
+  # 4) Déploiement K8S (apply des manifests)
+  - name: "gcr.io/cloud-builders/kubectl"
+    env:
+      - "CLOUDSDK_COMPUTE_REGION=${_REGION}"
+      - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
+    args:
+      [
+        "apply","-n","${_NAMESPACE}",
+        "-f","k8s/deployment.yaml",
+        "-f","k8s/service.yaml"
+      ]
+
+  # 5) Patch l'image (remplacement placeholders -> valeurs réelles)
+  #    kubectl kustomize serait une option, mais on reste simple :
+  - name: "bash"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        kubectl set image deployment/toxicity-api \
+          api=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/toxicity-api:$COMMIT_SHA \
+          -n ${_NAMESPACE}

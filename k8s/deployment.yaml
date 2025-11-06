@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toxicity-api
+  namespace: toxicity
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: toxicity-api
+  template:
+    metadata:
+      labels:
+        app: toxicity-api
+    spec:
+      containers:
+        - name: api
+          image: REGION-docker.pkg.dev/PROJECT_ID/AR_REPO/toxicity-api:COMMIT_SHA
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
