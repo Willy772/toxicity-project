@@ -5,6 +5,12 @@ from tensorflow.keras.preprocessing.text import tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
+import os
+if os.getenv("CI") == "true":
+    import pytest
+    pytest.skip("offline model test skipped on CI", allow_module_level=True)
+
+
 SERVICE = Path("service")
 
 def clean_text_local(s):
