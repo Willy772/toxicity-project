@@ -4,6 +4,7 @@ import tensorflow as tf
 from tensorflow.keras.preprocessing.text import tokenizer_from_json
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
+
 SERVICE = Path("service")
 
 def clean_text_local(s):

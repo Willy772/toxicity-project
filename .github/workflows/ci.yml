@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: ${{ github.workspace }}   # permet "from src..." dans les tests
-      APP_SKIP_STARTUP: "1"                 # évite tout chargement TensorFlow dans l'app
+      APP_SKIP_STARTUP: "1"                 # évite tout chargement du modèle dans service/app.py
+      CI: "true"                            # pour skipper test_offline
 
     steps:
       - name: Checkout
@@ -30,10 +31,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install test deps (no TF)
+      - name: Install test deps (no TensorFlow)
         run: |
           python -m pip install -U pip
           pip install -r requirements-dev.txt
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run tests (only tests/)
+        run: pytest -q tests
