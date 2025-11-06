@@ -11,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: ${{ github.workspace }}   # permet "from src..." dans les tests
-      APP_SKIP_STARTUP: "1"                 # évite tout chargement du modèle dans service/app.py
-      CI: "true"                            # pour skipper test_offline
+      APP_SKIP_STARTUP: "1"                 # évite le chargement du modèle dans service/app.py
+      CI: "true"                            # pour skipper src/test_offline.py
 
     steps:
       - name: Checkout
@@ -35,6 +35,17 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -r requirements-dev.txt
+
+      - name: Sanity check imports
+        run: |
+          python - << 'PY'
+          import os, sys
+          print("PYTHONPATH=", os.getenv("PYTHONPATH"))
+          import fastapi, httpx
+          import importlib
+          mod = importlib.import_module("src.utils_text")
+          print("Imported:", mod.__name__)
+          PY
 
       - name: Run tests (only tests/)
         run: pytest -q tests
