@@ -9,6 +9,9 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}   # permet "from src..." dans les tests
+      APP_SKIP_STARTUP: "1"                 # évite tout chargement TensorFlow dans l'app
 
     steps:
       - name: Checkout
@@ -23,19 +26,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-dev.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      # 🔹 Installation minimale pour nos tests (rapide, pas de TensorFlow)
-      - name: Install test deps
+      - name: Install test deps (no TF)
         run: |
           python -m pip install -U pip
           pip install -r requirements-dev.txt
-          pip install fastapi uvicorn pydantic
 
       - name: Run tests
-        env:
-          APP_SKIP_STARTUP: "1"
-        run: |
-          pytest -q
+        run: pytest -q
