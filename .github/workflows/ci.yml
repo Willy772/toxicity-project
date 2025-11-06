@@ -9,6 +9,9 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}   # permet "from src..." dans les tests
+      APP_SKIP_STARTUP: "1"                 # évite tout chargement TensorFlow dans l'app
 
     steps:
       - name: Checkout
@@ -27,17 +30,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install test deps (light)
+      - name: Install test deps (no TF)
         run: |
           python -m pip install -U pip
           pip install -r requirements-dev.txt
 
-      - name: Make packages importable
-        run: |
-          echo "PYTHONPATH=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-
       - name: Run tests
-        env:
-          APP_SKIP_STARTUP: "1"   # empêche le chargement du modèle/TF dans service/app.py
-        run: |
-          pytest
+        run: pytest -q
