@@ -1,12 +1,3 @@
-# --- skip total en CI : doit être AVANT tout import lourd ---
-import os
-if os.getenv("CI") == "true":
-    import pytest
-    pytest.skip("skip offline TF test on CI", allow_module_level=True)
-# ------------------------------------------------------------
-
-
-
 import json, re
 from pathlib import Path
 import tensorflow as tf
