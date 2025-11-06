@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API (uvicorn)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["service.app:app", "--reload", "--port", "8080"],
+      "justMyCode": true
+    },
+    {
+      "name": "Train (Step2)",
+      "type": "python",
+      "request": "launch",
+      "module": "src.step2_train",
+      "args": ["--csv", "data/train.csv", "--n-rows", "3000", "--use-anonymized"],
+      "justMyCode": true
+    }
+  ]
+}
+

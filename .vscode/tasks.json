@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label": "Step1 Anonymize", "type": "shell", "command": "python -m src.step1_anonymize --csv data/train.csv --n-rows 3000 --mask-labels"},
+    {"label": "Step2 Train", "type": "shell", "command": "python -m src.step2_train --csv data/train.csv --n-rows 3000 --use-anonymized"},
+    {"label": "Step3 Export API", "type": "shell", "command": "python -m src.step3_export"},
+    {"label": "Run API", "type": "shell", "command": "uvicorn service.app:app --reload --port 8080"}
+  ]
+}

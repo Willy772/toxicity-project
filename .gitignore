@@ -1,0 +1,20 @@
+# Python / venv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Notebooks / cache
+.ipynb_checkpoints/
+
+# Données locales
+data/train.csv
+data/_anonymized_head.csv
+
+# Logs / OS
+*.log
+.DS_Store
+
+# Modèles (si gros, utiliser Git LFS)
+service/model.keras
