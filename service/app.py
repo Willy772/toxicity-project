@@ -4,22 +4,22 @@ from pydantic import BaseModel
 from pathlib import Path
 import asyncio
 import os
+import numpy as np  # ✅ pour garantir un ndarray au modèle
 
-# import relatif vers preprocess.py
+# import relatif (on lance uvicorn avec service.app:app)
 from .preprocess import clean_text
 
 MAX_LEN = 120
 app = FastAPI(title="Toxic Comment LSTM API", version="1.0")
-
 BASE_DIR = Path(__file__).parent
 
 # Globals initialisés à None, alimentés au startup
-tokenizer = None  # doit fournir .texts_to_sequences(list[str]) -> List[List[int]]
-LABELS = None     # list[str]
-model = None      # doit fournir .predict(ndarray|list) -> list/ndarray shape (N, len(LABELS))
+tokenizer = None   # doit exposer .texts_to_sequences(list[str]) -> List[List[int]]
+LABELS = None      # list[str]
+model = None       # doit exposer .predict(np.ndarray) -> np.ndarray shape (N, len(LABELS))
 
 def _pad(seqs, maxlen=MAX_LEN):
-    """Padding simple sans TensorFlow."""
+    """Padding simple sans TensorFlow (right pad avec 0)."""
     out = []
     for s in seqs:
         s = list(s)[:maxlen]
@@ -30,32 +30,40 @@ def _pad(seqs, maxlen=MAX_LEN):
 
 @app.on_event("startup")
 async def load_artifacts():
-    # Permettre à la CI de skipper le chargement lourd
+    """Chargement lazy des artefacts. Skippable en CI via APP_SKIP_STARTUP=1."""
     if os.getenv("APP_SKIP_STARTUP", "0") == "1":
         return
 
     global tokenizer, LABELS, model
 
-    # Charger tokenizer / labels
+    # Charger tokenizer / labels (imports tardifs pour éviter de charger TF inutilement)
     tok_json = (BASE_DIR / "tokenizer.json").read_text(encoding="utf-8")
-    from tensorflow.keras.preprocessing.text import tokenizer_from_json  # import tardif
+    from tensorflow.keras.preprocessing.text import tokenizer_from_json  # lazy import
     tokenizer = tokenizer_from_json(tok_json)
 
-    LABELS = [l.strip() for l in (BASE_DIR / "labels.txt").read_text(encoding="utf-8").splitlines() if l.strip()]
+    LABELS = [
+        l.strip() for l in (BASE_DIR / "labels.txt").read_text(encoding="utf-8").splitlines()
+        if l.strip()
+    ]
 
-    # Charger le modèle (import tardif + thread séparé)
-    async def _load():
-        import tensorflow as tf
-        return tf.keras.models.load_model(str(BASE_DIR / "model.keras"))
-
+    # Charger le modèle en thread (pas de asyncio.run ici)
+    import tensorflow as tf  # lazy import
     loop = asyncio.get_running_loop()
-    model = await loop.run_in_executor(None, lambda: asyncio.run(_load()))
+    model = await loop.run_in_executor(
+        None,
+        tf.keras.models.load_model,
+        str(BASE_DIR / "model.keras"),
+    )
 
 class PredictIn(BaseModel):
     texts: List[str]
 
 class PredictOut(BaseModel):
     scores: List[Dict[str, float]]
+
+@app.get("/")
+def root():
+    return {"status": "ok", "docs": "/docs", "health": "/health"}
 
 @app.get("/health")
 def health():
@@ -65,11 +73,22 @@ def health():
 @app.post("/predict", response_model=PredictOut)
 def predict(payload: PredictIn):
     assert tokenizer is not None and model is not None and LABELS is not None, "Model not ready yet"
+
+    # 1) preprocess
     cleaned = [clean_text(t) for t in payload.texts]
     seqs = tokenizer.texts_to_sequences(cleaned)
+
+    # 2) padding hors-TF
     pad = _pad(seqs, maxlen=MAX_LEN)
-    # Appel modèle (signature compat Keras: .predict(...))
-    preds = model.predict(pad, verbose=0) if hasattr(model, "predict") else model(pad)  # support dummy
+
+    # 3) ✅ garantir un ndarray int32 pour Keras
+    arr = np.asarray(pad, dtype="int32")
+
+    # 4) forward
+    preds = model.predict(arr, verbose=0) if hasattr(model, "predict") else model(arr)
+    preds = preds.tolist() if hasattr(preds, "tolist") else preds
+
+    # 5) formatage
     out = []
     for row in preds:
         out.append({LABELS[i]: float(row[i]) for i in range(len(LABELS))})
