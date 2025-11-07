@@ -2,43 +2,33 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: toxicity-api
-  namespace: toxicity
+  labels: { app: toxicity-api }
 spec:
-  replicas: 2
+  replicas: 1
   selector:
-    matchLabels:
-      app: toxicity-api
+    matchLabels: { app: toxicity-api }
   template:
     metadata:
-      labels:
-        app: toxicity-api
+      labels: { app: toxicity-api }
     spec:
       containers:
-        - name: toxicity-api
-          # l'image est mise à jour par Cloud Build avec 'kubectl set image'
-          image: europe-west1-docker.pkg.dev/toxicity-project-477421/toxicity/toxicity-api:initial
-          imagePullPolicy: IfNotPresent
-          ports:
-            - containerPort: 8080
-          env:
-            - name: APP_SKIP_STARTUP
-              value: "0"
-          resources:
-            requests:
-              cpu: "200m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8080
-            initialDelaySeconds: 20
-            periodSeconds: 20
+      - name: toxicity-api
+        # L’image exacte sera injectée par cloudbuild 'kubectl set image'
+        image: europe-west1-docker.pkg.dev/PROJECT_ID/toxicity/toxicity-api:placeholder
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_SKIP_STARTUP
+          value: "0"
+        readinessProbe:
+          httpGet: { path: /health, port: 8080 }
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: { path: /health, port: 8080 }
+          initialDelaySeconds: 20
+          periodSeconds: 20
+        resources:
+          requests: { cpu: "250m", memory: "512Mi" }
+          limits:   { cpu: "1",    memory: "2Gi"   }

@@ -1,4 +1,6 @@
-# Build & Push image, puis déploiement kubectl sur GKE
+# cloudbuild.yaml — Build Docker depuis service/, push vers AR, déploiement sur GKE
+timeout: "3600s"
+
 substitutions:
   _REGION: "europe-west1"
   _AR_REPO: "toxicity"
@@ -10,27 +12,40 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
 
 steps:
-  # 1) Build image (contexte: service/)
+  # 0) (facultatif) Affiche les versions
+  - name: "gcr.io/cloud-builders/gcloud"
+    args: ["version"]
+
+  # 1) Build image (context = service/) + cache AR
   - name: "gcr.io/cloud-builders/docker"
     dir: "service"
     args:
       [
-        "build", "-t",
-        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA",
+        "build",
+        "--tag","${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA",
+        "--cache-from","type=registry,ref=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:latest",
+        "--cache-to","type=inline",
         "."
       ]
 
-  # 2) Push image
+  # 2) Tag latest (pratique pour tests manuels)
   - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "push",
-        "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA"
-      ]
+    args: [
+      "tag",
+      "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA",
+      "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:latest"
+    ]
 
-  # 3) Auth kubectl sur le cluster
+  # 3) Push
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push","${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA"]
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push","${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:latest"]
+
+  # 4) Auth GKE
   - name: "gcr.io/cloud-builders/gcloud"
     args:
       [
@@ -38,14 +53,14 @@ steps:
         "--zone","${_ZONE}","--project","$PROJECT_ID"
       ]
 
-  # 4) Appliquer/mettre à jour les manifests (namespace k8s/)
+  # 5) Apply manifests (créent Service/Deployment/HPA si besoin)
   - name: "gcr.io/cloud-builders/kubectl"
     env:
       - "CLOUDSDK_COMPUTE_ZONE=${_ZONE}"
       - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
     args: ["apply","-n","${_NAMESPACE}","-f","k8s/"]
 
-  # 5) Mettre à jour l'image du Deployment
+  # 6) Patch l’image du Deployment à chaque build
   - name: "gcr.io/cloud-builders/kubectl"
     env:
       - "CLOUDSDK_COMPUTE_ZONE=${_ZONE}"
@@ -59,3 +74,4 @@ steps:
 
 images:
   - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:latest"
