@@ -144,4 +144,4 @@ Projet réalisé dans le cadre de l’ESIGELEC — 2025.
 
 ### ✅ Tu peux coller ce texte directement dans ton `README.md` à la racine du projet.
 
-## Souhaites-tu que je t’ajoute **le badge CI prêt à l’emploi** (avec ton lien GitHub A
+# Souhaites-tu que je t’ajoute **le badge CI prêt à l’emploi** (avec ton lien GitHub A
