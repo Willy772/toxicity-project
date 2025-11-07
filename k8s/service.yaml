@@ -8,6 +8,6 @@ spec:
   selector:
     app: toxicity-api
   ports:
-    - name: http
-      port: 80
+    - port: 80
       targetPort: 8080
+      protocol: TCP
