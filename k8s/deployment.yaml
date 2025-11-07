@@ -2,33 +2,55 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: toxicity-api
-  labels: { app: toxicity-api }
+  labels:
+    app: toxicity-api
 spec:
   replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
-    matchLabels: { app: toxicity-api }
+    matchLabels:
+      app: toxicity-api
   template:
     metadata:
-      labels: { app: toxicity-api }
+      labels:
+        app: toxicity-api
     spec:
       containers:
-      - name: toxicity-api
-        # L’image exacte sera injectée par cloudbuild 'kubectl set image'
-        image: europe-west1-docker.pkg.dev/PROJECT_ID/toxicity/toxicity-api:placeholder
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 8080
-        env:
-        - name: APP_SKIP_STARTUP
-          value: "0"
-        readinessProbe:
-          httpGet: { path: /health, port: 8080 }
-          initialDelaySeconds: 10
-          periodSeconds: 10
-        livenessProbe:
-          httpGet: { path: /health, port: 8080 }
-          initialDelaySeconds: 20
-          periodSeconds: 20
-        resources:
-          requests: { cpu: "250m", memory: "512Mi" }
-          limits:   { cpu: "1",    memory: "2Gi"   }
+        - name: toxicity-api
+          # L’image exacte sera remplacée par Cloud Build (kubectl set image)
+          image: europe-west1-docker.pkg.dev/PROJECT_ID/toxicity/toxicity-api:placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_SKIP_STARTUP
+              value: "0"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
