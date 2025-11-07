@@ -1,75 +1,29 @@
-# Cloud Build v2 — Build & Deploy sur GKE
-# Gère l'absence de service/model.keras en générant des artefacts factices.
-
+# Build & Push image, puis déploiement kubectl sur GKE
 substitutions:
-  _REGION: "europe-west1"          # ⚠ région Artifact Registry (pas la région du trigger)
-  _AR_REPO: "toxicity"             # nom du repo Artifact Registry
-  _IMAGE_NAME: "toxicity-api"      # nom d'image
-  _CLUSTER: "toxicity-cluster"     # nom du cluster GKE
-  _ZONE: "europe-west1-b"          # zone du cluster GKE
-  _NAMESPACE: "toxicity"           # namespace Kubernetes
-  _DEPLOYMENT: "toxicity-api"      # nom du Deployment
-  _SERVICE: "toxicity-api-svc"     # nom du Service (info)
+  _REGION: "europe-west1"
+  _AR_REPO: "toxicity"
+  _IMAGE_NAME: "toxicity-api"
+  _CLUSTER: "toxicity-cluster"
+  _ZONE: "europe-west1-b"
+  _NAMESPACE: "toxicity"
+  _DEPLOYMENT: "toxicity-api"
 
 options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
-  # 0) Générer des artefacts factices si absents (modèle/tokenizer/labels) — uniquement pour build
-  #    On installe tensorflow CPU dans un conteneur Python léger, sans polluer ton image finale
-  - name: "python:3.10-slim"
-    id: "bootstrap-artifacts-if-missing"
-    dir: "service"
-    entrypoint: "bash"
-    args:
-      - "-lc"
-      - |
-        set -e
-        if [ -f model.keras ] && [ -f tokenizer.json ] && [ -f labels.txt ]; then
-          echo "✅ Artefacts déjà présents, on ne génère rien."
-        else
-          echo "⚠️  Artefacts manquants, génération de dummy artifacts..."
-          python -m pip install --no-cache-dir --upgrade pip
-          # tensorflow-cpu ≈ plus léger ; si indisponible sur ta plateforme, remplace par tensorflow==2.16.1
-          pip install --no-cache-dir tensorflow-cpu==2.16.1
-          python - <<'PY'
-from pathlib import Path
-LABELS=["toxic","severe_toxic","obscene","threat","insult","identity_hate"]
-BASE=Path(".")
-# labels
-(BASE/"labels.txt").write_text("\n".join(LABELS)+"\n", encoding="utf-8")
-# tokenizer + model (dummy)
-import tensorflow as tf
-from tensorflow.keras.preprocessing.text import Tokenizer
-MAX_LEN, MAX_VOCAB = 120, 8000
-tok = Tokenizer(num_words=MAX_VOCAB, oov_token="<unk>")
-tok.fit_on_texts(["hello world","you are awesome","neutral comment"])
-(BASE/"tokenizer.json").write_text(tok.to_json(), encoding="utf-8")
-model = tf.keras.Sequential([
-  tf.keras.layers.Embedding(input_dim=MAX_VOCAB, output_dim=8, input_length=MAX_LEN),
-  tf.keras.layers.GlobalAveragePooling1D(),
-  tf.keras.layers.Dense(16, activation="relu"),
-  tf.keras.layers.Dense(len(LABELS), activation="sigmoid"),
-])
-model.save(str(BASE/"model.keras"))
-print("✅ Dummy artifacts generated: model.keras, tokenizer.json, labels.txt")
-PY
-        fi
-
-  # 1) Build image (contexte = service/)
+  # 1) Build image (contexte: service/)
   - name: "gcr.io/cloud-builders/docker"
-    id: "docker-build"
     dir: "service"
     args:
       [
-        "build","-t",
+        "build", "-t",
         "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA",
         "."
       ]
 
   # 2) Push image
   - name: "gcr.io/cloud-builders/docker"
-    id: "docker-push"
     args:
       [
         "push",
@@ -78,24 +32,21 @@ PY
 
   # 3) Auth kubectl sur le cluster
   - name: "gcr.io/cloud-builders/gcloud"
-    id: "get-credentials"
     args:
       [
         "container","clusters","get-credentials","${_CLUSTER}",
         "--zone","${_ZONE}","--project","$PROJECT_ID"
       ]
 
-  # 4) Appliquer les manifests (namespace k8s/)
+  # 4) Appliquer/mettre à jour les manifests (namespace k8s/)
   - name: "gcr.io/cloud-builders/kubectl"
-    id: "kubectl-apply"
     env:
       - "CLOUDSDK_COMPUTE_ZONE=${_ZONE}"
       - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
     args: ["apply","-n","${_NAMESPACE}","-f","k8s/"]
 
-  # 5) Mettre à jour l'image du Deployment vers le tag $SHORT_SHA
+  # 5) Mettre à jour l'image du Deployment
   - name: "gcr.io/cloud-builders/kubectl"
-    id: "kubectl-set-image"
     env:
       - "CLOUDSDK_COMPUTE_ZONE=${_ZONE}"
       - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
@@ -105,14 +56,6 @@ PY
         "${_DEPLOYMENT}=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA",
         "-n","${_NAMESPACE}"
       ]
-
-  # 6) (optionnel) Attendre le rollout OK
-  - name: "gcr.io/cloud-builders/kubectl"
-    id: "kubectl-rollout-status"
-    env:
-      - "CLOUDSDK_COMPUTE_ZONE=${_ZONE}"
-      - "CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}"
-    args: ["rollout","status","deployment/${_DEPLOYMENT}","-n","${_NAMESPACE}","--timeout=180s"]
 
 images:
   - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$SHORT_SHA"
