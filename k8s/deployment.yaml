@@ -14,23 +14,31 @@ spec:
         app: toxicity-api
     spec:
       containers:
-        - name: api
-          image: REGION-docker.pkg.dev/PROJECT_ID/AR_REPO/toxicity-api:COMMIT_SHA
-          imagePullPolicy: Always
+        - name: toxicity-api
+          # l'image est mise à jour par Cloud Build avec 'kubectl set image'
+          image: europe-west1-docker.pkg.dev/toxicity-project-477421/toxicity/toxicity-api:initial
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          env:
+            - name: APP_SKIP_STARTUP
+              value: "0"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
           readinessProbe:
-            httpGet: { path: /health, port: 8080 }
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
-            httpGet: { path: /health, port: 8080 }
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 20
             periodSeconds: 20
-          resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-            limits:
-              cpu: "1"
-              memory: 1Gi
