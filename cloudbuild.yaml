@@ -12,7 +12,7 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: "E2_MEDIUM"
+  # machineType: "E2_MEDIUM"
 
 steps:
   # 0) (facultatif) Affiche les versions
