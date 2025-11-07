@@ -17,4 +17,4 @@ data/_anonymized_head.csv
 .DS_Store
 
 # Modèles (si gros, utiliser Git LFS)
-service/model.keras
+# service/model.keras
