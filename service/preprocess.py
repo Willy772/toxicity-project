@@ -1,96 +1,99 @@
+# service/preprocess.py
 import re
 import unicodedata
 
-# ----------------------------
-# (1) Nettoyage d'origine (inchangé)
-# ----------------------------
-
+# emoji range
 EMOJI_RE = re.compile(r"[\U00010000-\U0010ffff]", flags=re.UNICODE)
 URL_RE   = re.compile(r"https?://\S+|www\.\S+")
 
-def clean_text(s: str) -> str:
+def _normalize_unicode(s: str) -> str:
+    """Normalise les formes Unicode (NFKC) pour homogénéiser accents / ligatures."""
+    return unicodedata.normalize("NFKC", s)
+
+def _reduce_elongation(s: str) -> str:
     """
-    Nettoyage de base (conservé tel quel pour compatibilité tests) :
-    - minuscules
-    - suppression URL / emoji
-    - garder lettres/chiffres/espace/apostrophe
-    - normalisation des espaces
+    Réduit les répétitions de caractères exagérées.
+    Exemples :
+      niiiice -> nice
+      sooo -> so
+      loooool -> lol
+    On réduit toute séquence de la même lettre (2+) à une seule occurrence.
     """
-    s = str(s).lower()
-    s = URL_RE.sub(" ", s)
-    s = EMOJI_RE.sub(" ", s)
-    s = re.sub(r"[^a-z0-9\s']", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+    # Remplace les répétitions de caractère (lettres et chiffres) par un seul exemplaire
+    return re.sub(r"(.)\1+", r"\1", s)
 
-# ----------------------------
-# (2) Défense GENERIQUE (sans liste de mots)
-# ----------------------------
+def _levenshtein_distance(a: str, b: str) -> int:
+    """Distance de Levenshtein (itérative, O(len(a)*len(b)))."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if la == 0:
+        return lb
+    if lb == 0:
+        return la
+    # optimisation mémoire : deux lignes
+    prev = list(range(lb + 1))
+    cur = [0] * (lb + 1)
+    for i, ca in enumerate(a, start=1):
+        cur[0] = i
+        for j, cb in enumerate(b, start=1):
+            add = prev[j] + 1
+            delete = cur[j-1] + 1
+            change = prev[j-1] + (0 if ca == cb else 1)
+            cur[j] = min(add, delete, change)
+        prev, cur = cur, prev
+    return prev[lb]
 
-# Caractères invisibles / zero-width & espaces exotiques
-ZERO_WIDTH_RE = re.compile(r"[\u200B-\u200D\u2060\uFEFF]")  # ZWSP, ZWJ, ZWNJ, WJ, BOM
-MULTISPACES_RE = re.compile(r"\s+")
+def _levenshtein_ratio(a: str, b: str) -> float:
+    """Ratio de similarité : 1 - distance/max_len. Valeur entre 0 et 1."""
+    max_len = max(len(a), len(b), 1)
+    dist = _levenshtein_distance(a, b)
+    return 1.0 - (dist / max_len)
 
-# Mapping leet/symboles courant -> ASCII (générique, pas spécifique à des mots)
-LEET_TABLE = str.maketrans({
-    "0": "o", "1": "i", "2": "z", "3": "e", "4": "a", "5": "s", "6": "g", "7": "t", "8": "b", "9": "g",
-    "@": "a", "$": "s", "+": "t", "!": "i"
-})
-
-# Apostrophes/tirets typographiques -> ASCII
-PUNCT_SWAP_TABLE = str.maketrans({
-    "\u2018": "'", "\u2019": "'", "\u201B": "'", "´": "'",
-    "\u201C": '"', "\u201D": '"',
-    "\u2013": "-", "\u2014": "-", "–": "-", "—": "-",
-})
-
-# Répétitions et ponctuation
-REPEAT_3PLUS = re.compile(r"(.)\1{2,}")            # aaa -> aa
-REPEAT_PUNCT = re.compile(r"([!?.,'\"-])\1{1,}")   # ??!! -> ? !
-
-def _strip_zero_width(s: str) -> str:
-    return ZERO_WIDTH_RE.sub("", s)
-
-def _nfkc_fold_ascii(s: str) -> str:
-    # Normalisation NFKC (homoglyphes), puis suppression des accents
-    s = unicodedata.normalize("NFKC", s)
-    s = "".join(ch for ch in unicodedata.normalize("NFKD", s)
-                if unicodedata.category(ch) != "Mn")
-    return s
-
-def _swap_typo_punct(s: str) -> str:
-    return s.translate(PUNCT_SWAP_TABLE)
-
-def _leet_normalize(s: str) -> str:
-    return s.translate(LEET_TABLE)
-
-def _collapse_repetitions(s: str) -> str:
-    s = REPEAT_3PLUS.sub(r"\1\1", s)     # limite 3+ identiques à 2 (niiiice -> niice)
-    s = REPEAT_PUNCT.sub(r"\1", s)       # ponctuation doublée -> simple
-    return s
-
-def normalize_text(s: str) -> str:
+def clean_text(s: str, adversarial_threshold: float = 0.98) -> str:
     """
-    Normalisation défensive GENERIQUE (sans liste de mots) :
-    1) supprime zero-width et BOM
-    2) NFKC + désaccentuation
-    3) normalise apostrophes/tirets typographiques
-    4) convertit leet/symboles courants vers ASCII
-    5) borne les répétitions (3+ -> 2) et ponctuation doublée
-    6) normalise les espaces
+    Nettoyage + défense simple contre attaques par perturbation orthographique.
+    - supprime URLs et emojis
+    - normalize unicode
+    - lowercase
+    - supprime caractères non a-z0-9 et apostrophe
+    - réduit les allongements (e.g. niiiice -> nice)
+    - compare versions via Levenshtein ratio ; si la normalisation change trop
+      le texte (ratio < adversarial_threshold) on renvoie la version normalisée
+      (plus robuste).
+    Paramètre :
+      adversarial_threshold : seuil de similarité (entre 0 et 1). Plus élevé =
+      plus d'agressivité dans la détection d'attaque (ex: 0.98).
     """
-    s = str(s)
-    s = _strip_zero_width(s)
-    s = _nfkc_fold_ascii(s).lower()
-    s = _swap_typo_punct(s)
-    s = _leet_normalize(s)
-    s = _collapse_repetitions(s)
-    s = MULTISPACES_RE.sub(" ", s).strip()
-    return s
+    if s is None:
+        return s
 
-def secure_preprocess(s: str) -> str:
-    """
-    Pipeline recommandé côté API avant tokenization :
-    secure_preprocess = normalize_text(clean_text(s))
-    """
-    return normalize_text(clean_text(s))
+    # 1) Normalisation unicode initiale
+    s0 = _normalize_unicode(str(s))
+
+    # 2) Retirer URLs et emojis
+    s1 = URL_RE.sub(" ", s0)
+    s1 = EMOJI_RE.sub(" ", s1)
+
+    # 3) lowercase
+    s1 = s1.lower()
+
+    # 4) suppression caracteres indésirables (garde a-z0-9 et apostrophe)
+    s1 = re.sub(r"[^a-z0-9\s']", " ", s1)
+
+    # 5) collapse espace
+    s1 = re.sub(r"\s+", " ", s1).strip()
+
+    # 6) version normalisée : réduction des allongements
+    s_norm = _reduce_elongation(s1)
+
+    # 7) si la normalisation modifie beaucoup le texte, on choisit la version normalisée
+    #    (protection contre 'niiiice', 'stuuupid', 'loooool', etc.)
+    if s_norm != s1:
+        ratio = _levenshtein_ratio(s1, s_norm)
+        # seuil par défaut : 0.98 (ajuste si trop agressif)
+        if ratio < adversarial_threshold:
+            return s_norm
+
+    # sinon, on renvoie la version propre habituelle
+    return s1

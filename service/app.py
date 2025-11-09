@@ -76,7 +76,8 @@ def predict(payload: PredictIn):
     assert tokenizer is not None and model is not None and LABELS is not None, "Model not ready yet"
 
     # 1) preprocess
-    cleaned = [secure_preprocess(t) for t in payload.texts]
+    cleaned = [clean_text(t) for t in payload.texts]
+    # cleaned = [secure_preprocess(t) for t in payload.texts]
     seqs = tokenizer.texts_to_sequences(cleaned)
 
     # 2) padding hors-TF
