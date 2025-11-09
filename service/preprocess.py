@@ -96,4 +96,4 @@ def clean_text(s: str, adversarial_threshold: float = 0.98) -> str:
             return s_norm
 
     # sinon, on renvoie la version propre habituelle
-    return s
+    return s1
