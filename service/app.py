@@ -11,7 +11,7 @@ from .preprocess import clean_text
 from .preprocess import secure_preprocess  # disponible si tu veux l'activer
 
 MAX_LEN = 120
-app = FastAPI(title="Toxic Comment LSTM API", version="1.0")
+app = FastAPI(title="Social Score message", version="1.0")
 BASE_DIR = Path(__file__).parent
 
 # Globals initialisés à None, alimentés au startup
