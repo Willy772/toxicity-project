@@ -6,9 +6,14 @@ import asyncio
 import os
 import numpy as np  # ✅ pour garantir un ndarray au modèle
 
-# import relatif (on lance uvicorn avec service.app:app)
-from .preprocess import clean_text
-from .preprocess import secure_preprocess  # disponible si tu veux l'activer
+# === Import sécurisé du préprocesseur ===
+# essaie d'importer secure_preprocess, sinon fallback sur clean_text
+try:
+    from .preprocess import secure_preprocess as _preprocess_fn
+    _SECURE_MODE = True
+except ImportError:
+    from .preprocess import clean_text as _preprocess_fn
+    _SECURE_MODE = False
 
 MAX_LEN = 120
 app = FastAPI(title="Social Score message", version="1.0")
@@ -70,37 +75,42 @@ class PredictOut(BaseModel):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "docs": "/docs", "health": "/health"}
+    return {
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+        "secure_mode": _SECURE_MODE
+    }
 
 
 @app.get("/health")
 def health():
     status = "ready" if all([tokenizer, LABELS, model]) else "loading"
-    return {"status": status, "labels": LABELS or []}
+    return {
+        "status": status,
+        "labels": LABELS or [],
+        "secure_mode": _SECURE_MODE
+    }
 
 
 @app.post("/predict", response_model=PredictOut)
 def predict(payload: PredictIn):
     assert tokenizer is not None and model is not None and LABELS is not None, "Model not ready yet"
 
-    # 1) preprocess
-    cleaned = [clean_text(t) for t in payload.texts]
-    # ✅ Active cette ligne si tu veux une normalisation plus stricte côté sécurité :
-    # cleaned = [secure_preprocess(t) for t in payload.texts]
-
-    seqs = tokenizer.texts_to_sequences(cleaned)
+    # 1) preprocess (clean_text ou secure_preprocess selon ce qui est dispo)
+    cleaned = [_preprocess_fn(t) for t in payload.texts]
 
     # 2) padding hors-TF
-    pad = _pad(seqs, maxlen=MAX_LEN)
+    pad = _pad(seqs=tokenizer.texts_to_sequences(cleaned), maxlen=MAX_LEN)
 
-    # 3) ✅ garantir un ndarray int32 pour Keras
+    # 3) garantir un ndarray int32 pour Keras
     arr = np.asarray(pad, dtype="int32")
 
     # 4) forward
     preds = model.predict(arr, verbose=0) if hasattr(model, "predict") else model(arr)
-    preds = np.asarray(preds)  # pour être sûr d'avoir un ndarray
+    preds = np.asarray(preds)
 
-    # 5) formatage : on renvoie uniquement le label top-1 (argmax) par texte
+    # 5) formatage : renvoie uniquement le label top-1 (argmax)
     top_indices = np.argmax(preds, axis=1).tolist()
     top_labels = [LABELS[i] for i in top_indices]
 
