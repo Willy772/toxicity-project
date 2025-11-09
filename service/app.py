@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List
 from fastapi import FastAPI
 from pydantic import BaseModel
 from pathlib import Path
@@ -8,7 +8,7 @@ import numpy as np  # ✅ pour garantir un ndarray au modèle
 
 # import relatif (on lance uvicorn avec service.app:app)
 from .preprocess import clean_text
-from .preprocess import secure_preprocess
+from .preprocess import secure_preprocess  # disponible si tu veux l'activer
 
 MAX_LEN = 120
 app = FastAPI(title="Toxic Comment LSTM API", version="1.0")
@@ -19,6 +19,7 @@ tokenizer = None   # doit exposer .texts_to_sequences(list[str]) -> List[List[in
 LABELS = None      # list[str]
 model = None       # doit exposer .predict(np.ndarray) -> np.ndarray shape (N, len(LABELS))
 
+
 def _pad(seqs, maxlen=MAX_LEN):
     """Padding simple sans TensorFlow (right pad avec 0)."""
     out = []
@@ -28,6 +29,7 @@ def _pad(seqs, maxlen=MAX_LEN):
             s = s + [0] * (maxlen - len(s))
         out.append(s)
     return out
+
 
 @app.on_event("startup")
 async def load_artifacts():
@@ -56,20 +58,26 @@ async def load_artifacts():
         str(BASE_DIR / "model.keras"),
     )
 
+
 class PredictIn(BaseModel):
     texts: List[str]
 
+
 class PredictOut(BaseModel):
-    scores: List[Dict[str, float]]
+    # On renvoie uniquement la classe top-1 pour chaque texte
+    labels: List[str]
+
 
 @app.get("/")
 def root():
     return {"status": "ok", "docs": "/docs", "health": "/health"}
 
+
 @app.get("/health")
 def health():
     status = "ready" if all([tokenizer, LABELS, model]) else "loading"
     return {"status": status, "labels": LABELS or []}
+
 
 @app.post("/predict", response_model=PredictOut)
 def predict(payload: PredictIn):
@@ -77,7 +85,9 @@ def predict(payload: PredictIn):
 
     # 1) preprocess
     cleaned = [clean_text(t) for t in payload.texts]
+    # ✅ Active cette ligne si tu veux une normalisation plus stricte côté sécurité :
     # cleaned = [secure_preprocess(t) for t in payload.texts]
+
     seqs = tokenizer.texts_to_sequences(cleaned)
 
     # 2) padding hors-TF
@@ -88,10 +98,10 @@ def predict(payload: PredictIn):
 
     # 4) forward
     preds = model.predict(arr, verbose=0) if hasattr(model, "predict") else model(arr)
-    preds = preds.tolist() if hasattr(preds, "tolist") else preds
+    preds = np.asarray(preds)  # pour être sûr d'avoir un ndarray
 
-    # 5) formatage
-    out = []
-    for row in preds:
-        out.append({LABELS[i]: float(row[i]) for i in range(len(LABELS))})
-    return PredictOut(scores=out)
+    # 5) formatage : on renvoie uniquement le label top-1 (argmax) par texte
+    top_indices = np.argmax(preds, axis=1).tolist()
+    top_labels = [LABELS[i] for i in top_indices]
+
+    return PredictOut(labels=top_labels)
