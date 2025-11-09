@@ -8,6 +8,7 @@ import numpy as np  # ✅ pour garantir un ndarray au modèle
 
 # import relatif (on lance uvicorn avec service.app:app)
 from .preprocess import clean_text
+from .preprocess import secure_preprocess
 
 MAX_LEN = 120
 app = FastAPI(title="Toxic Comment LSTM API", version="1.0")
@@ -75,7 +76,7 @@ def predict(payload: PredictIn):
     assert tokenizer is not None and model is not None and LABELS is not None, "Model not ready yet"
 
     # 1) preprocess
-    cleaned = [clean_text(t) for t in payload.texts]
+    cleaned = [secure_preprocess(t) for t in payload.texts]
     seqs = tokenizer.texts_to_sequences(cleaned)
 
     # 2) padding hors-TF
