@@ -2,41 +2,32 @@
 import re
 import unicodedata
 
-# emoji range
 EMOJI_RE = re.compile(r"[\U00010000-\U0010ffff]", flags=re.UNICODE)
 URL_RE   = re.compile(r"https?://\S+|www\.\S+")
 
 def _normalize_unicode(s: str) -> str:
-    """Normalise les formes Unicode (NFKC) pour homogénéiser accents / ligatures."""
+    # Homogénéise accents/ligatures (é→e si composé, etc.)
     return unicodedata.normalize("NFKC", s)
 
-def _reduce_elongation(s: str) -> str:
+def _reduce_elongation_keep_doubles(s: str) -> str:
     """
-    Réduit les répétitions de caractères exagérées.
-    Exemples :
-      niiiice -> nice
-      sooo -> so
-      loooool -> lol
-    On réduit toute séquence de la même lettre (2+) à une seule occurrence.
+    Réduit uniquement les répétitions de 3+ occurrences à 2.
+    Ex: niiiice -> niice, loooool -> lool, soooo -> so
+    (préserve les doubles valides: hello, pizza, effet)
     """
-    # Remplace les répétitions de caractère (lettres et chiffres) par un seul exemplaire
-    return re.sub(r"(.)\1+", r"\1", s)
+    return re.sub(r"(.)\1{2,}", r"\1\1", s)
 
 def _levenshtein_distance(a: str, b: str) -> int:
-    """Distance de Levenshtein (itérative, O(len(a)*len(b)))."""
     if a == b:
         return 0
     la, lb = len(a), len(b)
-    if la == 0:
-        return lb
-    if lb == 0:
-        return la
-    # optimisation mémoire : deux lignes
+    if la == 0: return lb
+    if lb == 0: return la
     prev = list(range(lb + 1))
     cur = [0] * (lb + 1)
-    for i, ca in enumerate(a, start=1):
+    for i, ca in enumerate(a, 1):
         cur[0] = i
-        for j, cb in enumerate(b, start=1):
+        for j, cb in enumerate(b, 1):
             add = prev[j] + 1
             delete = cur[j-1] + 1
             change = prev[j-1] + (0 if ca == cb else 1)
@@ -44,56 +35,45 @@ def _levenshtein_distance(a: str, b: str) -> int:
         prev, cur = cur, prev
     return prev[lb]
 
-def _levenshtein_ratio(a: str, b: str) -> float:
-    """Ratio de similarité : 1 - distance/max_len. Valeur entre 0 et 1."""
+def _lev_ratio(a: str, b: str) -> float:
     max_len = max(len(a), len(b), 1)
-    dist = _levenshtein_distance(a, b)
-    return 1.0 - (dist / max_len)
+    return 1.0 - (_levenshtein_distance(a, b) / max_len)
 
 def clean_text(s: str, adversarial_threshold: float = 0.98) -> str:
     """
-    Nettoyage + défense simple contre attaques par perturbation orthographique.
-    - supprime URLs et emojis
-    - normalize unicode
-    - lowercase
-    - supprime caractères non a-z0-9 et apostrophe
-    - réduit les allongements (e.g. niiiice -> nice)
-    - compare versions via Levenshtein ratio ; si la normalisation change trop
-      le texte (ratio < adversarial_threshold) on renvoie la version normalisée
-      (plus robuste).
-    Paramètre :
-      adversarial_threshold : seuil de similarité (entre 0 et 1). Plus élevé =
-      plus d'agressivité dans la détection d'attaque (ex: 0.98).
+    Nettoyage + petite défense contre orthographe adversariale:
+      - retire URLs, emojis
+      - normalise unicode
+      - lowercase
+      - garde [a-z0-9 ']
+      - réduit 3+ répétitions à 2 (préserve les doubles)
+      - si la normalisation change beaucoup le texte (ratio < seuil), on garde la version normalisée
     """
     if s is None:
         return s
 
-    # 1) Normalisation unicode initiale
+    # 1) Normalisation unicode
     s0 = _normalize_unicode(str(s))
 
-    # 2) Retirer URLs et emojis
+    # 2) URLs & emojis
     s1 = URL_RE.sub(" ", s0)
     s1 = EMOJI_RE.sub(" ", s1)
 
     # 3) lowercase
     s1 = s1.lower()
 
-    # 4) suppression caracteres indésirables (garde a-z0-9 et apostrophe)
+    # 4) filtrage caractères (on garde lettres/chiffres/espace/apostrophe)
     s1 = re.sub(r"[^a-z0-9\s']", " ", s1)
 
-    # 5) collapse espace
+    # 5) normalisation espaces
     s1 = re.sub(r"\s+", " ", s1).strip()
 
-    # 6) version normalisée : réduction des allongements
-    s_norm = _reduce_elongation(s1)
+    # 6) réduction des allongements (3+ -> 2)
+    s_norm = _reduce_elongation_keep_doubles(s1)
 
-    # 7) si la normalisation modifie beaucoup le texte, on choisit la version normalisée
-    #    (protection contre 'niiiice', 'stuuupid', 'loooool', etc.)
+    # 7) si la réduction a réellement “corrigé” un texte très étiré, on préfère s_norm
     if s_norm != s1:
-        ratio = _levenshtein_ratio(s1, s_norm)
-        # seuil par défaut : 0.98 (ajuste si trop agressif)
-        if ratio < adversarial_threshold:
+        if _lev_ratio(s1, s_norm) < adversarial_threshold:
             return s_norm
 
-    # sinon, on renvoie la version propre habituelle
     return s1
