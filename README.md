@@ -1,147 +1,178 @@
-📘 README.md
-# 🧠 Toxicity Project — FastAPI + LSTM
+# Toxicity Project — FastAPI + LSTM (Digital Social Score)
 
-Ce projet met en place une API **FastAPI** qui expose un modèle **LSTM** de classification de toxicité de commentaires.  
-L’intégration continue est assurée via **GitHub Actions** et le déploiement continu (CD) pourra être effectué sur **Google Kubernetes Engine (GKE)** via **Cloud Build**.
+[![CI](https://github.com/Willy772/toxicity-project/actions/workflows/ci.yml/badge.svg)](https://github.com/Willy772/toxicity-project/actions/workflows/ci.yml)
+
+API de détection de **toxicité de commentaires** (binaire `toxic` / `non toxic`) basée sur un **BiLSTM Keras**, servie via **FastAPI**.  
+CI via **GitHub Actions** ; CD prêt pour **GCP** (Cloud Build → **GKE**).  
+Conforme RGPD par **anonymisation amont** et **minimisation** (voir *Model Card*).
 
 ---
 
-## 📂 Structure du projet
+## 🗂️ Structure
 
-```bash
+```
 toxicity-project/
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml              # Workflow GitHub Actions : tests légers
-│
-├── service/                    # Service FastAPI exporté
-│   ├── app.py                  # API principale FastAPI (.keras compatible)
-│   ├── preprocess.py           # Nettoyage de texte (utilisé dans l'API)
-│   ├── model.keras             # Modèle LSTM sauvegardé
-│   ├── tokenizer.json          # Tokenizer Keras
-│   ├── labels.txt              # Liste des labels multilabel
-│   ├── requirements.txt        # Dépendances du service
-│   └── Dockerfile              # Image Docker pour déploiement sur GKE
-│
-├── tests/                      # Tests unitaires légers (CI)
-│   ├── test_preprocess_clean_text.py
-│   └── test_api_files_present.py
-│
-├── .gitignore
-├── pytest.ini                  # Restreint pytest à tests/
-├── README.md                   # Ce document
-└── requirements.txt (optionnel si besoin racine)
+├─ .github/workflows/ci.yml        # Tests unitaires (CI)
+├─ service/                        # API FastAPI + artefacts modèle
+│  ├─ app.py                       # Endpoints /health, /predict (binaire)
+│  ├─ preprocess.py                # Nettoyage/normalisation des textes
+│  ├─ model.keras                  # Modèle BiLSTM sauvegardé
+│  ├─ tokenizer.json               # Tokenizer Keras
+│  ├─ labels.txt                   # Labels d'entraînement (6 catégories)
+│  ├─ requirements.txt             # Dépendances API
+│  └─ Dockerfile                   # Image API
+├─ src/                            # Pipeline entraînement & anonymisation
+│  ├─ step1_anonymize.py           # Anonymisation (spaCy + regex)
+│  ├─ step2_train.py               # Entraînement BiLSTM
+│  └─ step3_export.py              # Export artefacts vers /service
+├─ k8s/                            # Manifests GKE (Deployment/Service/HPA)
+├─ tests/                          # Tests unitaires légers
+├─ cloudbuild.yaml                 # CD Cloud Build (build/push/deploy)
+└─ README.md
+.
+.
+.
+```
 
-⚙️ Pré-requis
+---
 
-Python 3.10+
+## 🚀 Démarrage rapide (local)
 
-Git
+### 1) Prérequis
+- Python **3.10+**
+- (Optionnel) Docker 24+
+- (Optionnel) spaCy `en_core_web_sm` si tu lances l’entraînement
 
-VS Code / Terminal
-
-(Optionnel) Docker si tu veux lancer l’image
-
-🚀 Lancer le projet localement
-1️⃣ Cloner le dépôt
+### 2) Installation & run API
+```bash
 git clone https://github.com/Willy772/toxicity-project.git
 cd toxicity-project
-
-2️⃣ Créer et activer un environnement virtuel
-🪟 Sous Windows PowerShell :
 python -m venv .venv
-. .venv\Scripts\Activate.ps1
-
-🐧 Sous Linux / macOS :
-python3 -m venv .venv
+# Windows: . .venv\Scripts\Activate.ps1
+# Linux/Mac:
 source .venv/bin/activate
 
-3️⃣ Installer les dépendances du service
+# Dépendances API uniquement
 pip install -U pip
 pip install -r service/requirements.txt
 
-
-(les dépendances incluent fastapi, uvicorn, tensorflow, etc.)
-
-4️⃣ Lancer l’API FastAPI
-
-Depuis le dossier service/ :
-
-cd service
-python -m uvicorn app:app --port 8080
-
-
-L’API démarre sur :
-👉 http://127.0.0.1:8080
-
-🔍 Vérification rapide
-
-Endpoint de santé :
-→ http://127.0.0.1:8080/health
-
-Exemple de requête POST /predict :
-
-curl -X POST http://127.0.0.1:8080/predict \
-     -H "Content-Type: application/json" \
-     -d '{"texts": ["You are awesome!", "You are a stupid idiot."]}'
-
-🧪 Lancer les tests localement
-
-Les tests vérifient :
-
-Le comportement de clean_text()
-
-La présence et la structure des fichiers clés de service/
-
-pytest
-
-
-(pas besoin de TensorFlow ou du modèle pour ces tests — ils sont légers et rapides)
-
-🧰 Intégration Continue (CI)
-
-Le workflow GitHub Actions (.github/workflows/ci.yml) exécute automatiquement les tests à chaque push ou pull request sur main.
-
-Badge à ajouter dans ton README (une fois le pipeline vert) :
-
-![CI](https://github.com/Willy772/toxicity-project/actions/workflows/ci.yml/badge.svg)
-
-🐳 Lancer avec Docker
-
-Depuis la racine du projet :
-
-cd service
-docker build -t toxicity-api .
-docker run -p 8080:8080 toxicity-api
-
-
-Puis ouvre http://127.0.0.1:8080
-
-☁️ Étapes futures — Déploiement continu (CD)
-
-Le pipeline CD (prochaine étape) consistera à :
-
-Cloud Build → Build & push image vers Artifact Registry
-
-GKE (Kubernetes) → Déploiement automatisé via kubectl apply
-
-GitHub Actions → Déclenchement de Cloud Build à chaque push sur main
-
-(sera ajouté dans .github/workflows/deploy.yml et cloudbuild.yaml)
-
-📄 Licence
-
-Projet académique — libre d’utilisation à des fins éducatives.
-
-✨ Auteur
-
-Willy772
-Projet réalisé dans le cadre de l’ESIGELEC — 2025.
-
+# Lancer l’API
+python -m uvicorn service.app:app --port 8080
+# ➜ http://127.0.0.1:8080  (docs Swagger: /docs)
+```
 
 ---
 
-### ✅ Tu peux coller ce texte directement dans ton `README.md` à la racine du projet.
+## 🧪 Tests (CI)
 
-# Souhaites-tu que je t’ajoute **le badge CI prêt à l’emploi** (avec ton lien GitHub A
+```bash
+pytest -q
+```
+Les tests valident :
+- la présence des fichiers clés de l’API,
+- le comportement de `clean_text()`.
+
+Le pipeline **GitHub Actions** s’exécute automatiquement sur `main`.
+
+---
+
+## 🧠 Entraînement du modèle (optionnel)
+
+> Si tu souhaites régénérer `model.keras`, `tokenizer.json`, `labels.txt`.
+
+1) Installer les dépendances “full” (entraînement + anonymisation) :
+```bash
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+```
+
+2) Anonymisation (remplace DCP par tokens) :
+```bash
+python -m src.step1_anonymize --csv data/train.csv --n-rows 3000 --mask-labels
+```
+
+3) Entraînement BiLSTM + export API :
+```bash
+python -m src.step2_train --csv data/train.csv --n-rows 3000 --use-anonymized
+python -m src.step3_export
+# ➜ artefacts dans /service
+```
+
+---
+
+## 🐳 Docker
+
+```bash
+cd service
+docker build -t toxicity-api:local .
+docker run -p 8080:8080 toxicity-api:local
+# ➜ http://127.0.0.1:8080
+```
+
+---
+
+## ☁️ Déploiement Cloud
+
+### Option A — GKE (Kubernetes)
+
+1) **Build & push** via Cloud Build (déclenché par commit)  
+   Le fichier `cloudbuild.yaml` :
+- construit l’image depuis `service/`,
+- pousse dans **Artifact Registry**,
+- `kubectl apply -f k8s/`,
+- `kubectl set image` sur le Deployment.
+
+2) **Manifests** (`k8s/`)
+- `deployment.yaml` : `toxicity-api` (probes, ressources)
+- `service.yaml` : `type: LoadBalancer` (IP publique)
+- `hpa.yaml` (optionnel) : auto-scale sur CPU
+
+> **Coûts faibles** : 1 seul nœud, HPA désactivé, `requests`/`limits` modestes.
+
+### Option B — Cloud Run (conseillée si trafic faible)
+```bash
+gcloud run deploy toxicity-api   --image=europe-west1-docker.pkg.dev/PROJECT_ID/toxicity/toxicity-api:latest   --region=europe-west1 --memory=2Gi --cpu=1   --allow-unauthenticated
+```
+**Scale-to-zero** → 0 € sans trafic.
+
+---
+
+## 🔐 Sécurité & Conformité
+
+- **Entrées** : nettoyage strict + option `secure_preprocess`  
+- **Surface limitée** : l’API **ne renvoie pas** les scores bruts → sortie **binaire** `toxic/non toxic` (mitige *model extraction*).  
+- **RGPD** : anonymisation amont (DCP masquées), pas de stockage des payloads d’inférence.  
+- **Cloud** : TLS, IAM, isolation par conteneurs, Artifact Registry
+
+📄 **Model Card RGPD** : voir `Model_Card_RGPD.md` .
+
+---
+
+## 📚 API (OpenAPI)
+
+- **Docs interactives** : `GET /docs`
+- **Santé** : `GET /health`  
+  Renvoie `status`, `labels`, `secure_mode`.
+- **Prédiction** : `POST /predict`
+```json
+// Input
+{"texts":["hello world"]}
+
+// Output binaire
+{"labels":["non toxic"]}
+```
+
+---
+
+## 🧩 Roadmap
+
+- quotas
+- Observabilité (traces, métriques custom)
+- Cloud Run as a Service (coûts optimisés)
+
+---
+
+## 👤 Auteur / Licence
+
+- Auteur : **Willy772**, **YannickNino**   
+- Projet académique — usage éducatif.
